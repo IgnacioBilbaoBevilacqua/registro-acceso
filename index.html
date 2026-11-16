@@ -42,6 +42,18 @@
   .link { background: none; color: var(--accent); font-size: 15px; font-weight: 600; padding: 10px; margin-top: 14px; }
   .priv { font-size: 12px; color: var(--muted); margin-top: 16px; line-height: 1.4; }
   .hidden { display: none; }
+  .up { text-transform: uppercase; }
+  .crew-h { display: flex; justify-content: space-between; align-items: baseline; margin-top: 22px;
+            padding-top: 16px; border-top: 1px solid var(--line); }
+  .crew-h b { font-size: 15px; } .crew-h span { font-size: 13px; color: var(--muted); }
+  .mem { border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin-top: 10px; position: relative; }
+  .mem .n { font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 6px; }
+  .mem input { font-size: 16px; padding: 10px; margin-top: 6px; }
+  .mem input:first-of-type { margin-top: 0; }
+  .rm { position: absolute; top: 6px; right: 6px; background: none; color: var(--muted); font-size: 20px;
+        font-weight: 400; padding: 2px 8px; }
+  .add { width: 100%; background: #fff; color: var(--accent); border: 1px dashed var(--accent);
+         font-size: 15px; padding: 12px; margin-top: 10px; }
 </style>
 </head>
 <body>
@@ -58,13 +70,17 @@
     <div class="hint" id="rutHint"></div>
 
     <label for="nombre">Nombre completo</label>
-    <input id="nombre" autocomplete="name" maxlength="80">
+    <input id="nombre" class="up" autocomplete="name" maxlength="80">
 
     <label for="empresa">Empresa <span class="opt">(si eres contratista o visita)</span></label>
-    <input id="empresa" autocomplete="organization" maxlength="80">
+    <input id="empresa" class="up" autocomplete="organization" maxlength="80">
 
     <label for="motivo">Motivo <span class="opt">(opcional)</span></label>
-    <input id="motivo" maxlength="150">
+    <input id="motivo" class="up" maxlength="150">
+
+    <div class="crew-h"><b>Cuadrilla</b><span id="crewCount">Solo yo</span></div>
+    <div id="crew"></div>
+    <button class="add" id="btnAdd" type="button">+ Agregar integrante</button>
 
     <div class="loc"><span class="dot wait" id="locDot"></span><span id="locTxt">Obteniendo ubicación…</span></div>
 
@@ -133,6 +149,42 @@ $('rut').addEventListener('input', e => {
   e.target.classList.remove('bad'); $('rutHint').textContent = '';
 });
 
+/* ----- Cuadrilla ----- */
+function addMember(rut, nombre) {
+  const box = document.createElement('div');
+  box.className = 'mem';
+  box.innerHTML = '<div class="n"></div><button class="rm" type="button" aria-label="Quitar">×</button>' +
+    '<input class="m-rut" placeholder="RUT" maxlength="12" autocomplete="off">' +
+    '<input class="m-nom up" placeholder="Nombre completo" maxlength="80" autocomplete="off">' +
+    '<div class="hint"></div>';
+  const r = box.querySelector('.m-rut'), n = box.querySelector('.m-nom');
+  r.value = rut || ''; n.value = nombre || '';
+  r.addEventListener('input', () => { r.value = formatearRut(r.value); r.classList.remove('bad'); box.querySelector('.hint').textContent = ''; });
+  n.addEventListener('input', () => n.classList.remove('bad'));
+  box.querySelector('.rm').onclick = () => { box.remove(); renumber(); };
+  $('crew').appendChild(box);
+  renumber();
+  return box;
+}
+function renumber() {
+  const items = [...$('crew').children];
+  items.forEach((b, i) => b.querySelector('.n').textContent = 'Integrante ' + (i + 1));
+  $('crewCount').textContent = items.length ? (items.length + 1) + ' personas en total' : 'Solo yo';
+}
+function leerCuadrilla() {
+  // Devuelve la lista o null si hay errores (marca los campos)
+  const out = []; let ok = true;
+  [...$('crew').children].forEach(b => {
+    const r = b.querySelector('.m-rut'), n = b.querySelector('.m-nom');
+    if (!r.value.trim() && !n.value.trim()) return; // fila vacía: se ignora
+    if (!rutValido(r.value)) { r.classList.add('bad'); b.querySelector('.hint').textContent = 'RUT inválido'; ok = false; }
+    if (n.value.trim().length < 3) { n.classList.add('bad'); ok = false; }
+    out.push({ rut: r.value.trim(), nombre: n.value.trim().toUpperCase() });
+  });
+  return ok ? out : null;
+}
+$('btnAdd').onclick = () => addMember().querySelector('.m-rut').focus();
+
 /* ----- Ubicación ----- */
 function pedirUbicacion() {
   if (!navigator.geolocation) { setLoc('no', 'Este teléfono no entrega ubicación'); return; }
@@ -153,16 +205,20 @@ async function registrar(tipo) {
   if (!rutValido(rut)) { $('rut').classList.add('bad'); $('rutHint').textContent = 'RUT inválido'; $('rut').focus(); return; }
   if (nombre.length < 3) { $('nombre').classList.add('bad'); $('nombre').focus(); return; }
   $('nombre').classList.remove('bad');
+  const integrantes = leerCuadrilla();
+  if (!integrantes) { const bad = document.querySelector('#crew .bad'); if (bad) bad.focus(); return; }
 
-  store.set('rut', rut); store.set('nombre', nombre); store.set('empresa', $('empresa').value.trim());
+  const empresa = $('empresa').value.trim().toUpperCase();
+  store.set('rut', rut); store.set('nombre', nombre.toUpperCase()); store.set('empresa', empresa);
+  store.set('cuadrilla', JSON.stringify(integrantes));
 
   $('btnIn').disabled = $('btnOut').disabled = true;
   const label = tipo === 'ENTRADA' ? $('btnIn') : $('btnOut');
   const orig = label.textContent; label.textContent = 'Enviando…';
 
   const body = {
-    s: S, k: K, tipo, rut, nombre,
-    empresa: $('empresa').value.trim(), motivo: $('motivo').value.trim(),
+    s: S, k: K, tipo, rut, nombre: nombre.toUpperCase(), integrantes,
+    empresa, motivo: $('motivo').value.trim().toUpperCase(),
     lat: pos ? pos.latitude : null, lng: pos ? pos.longitude : null, acc: pos ? pos.accuracy : null,
     ua: navigator.userAgent
   };
@@ -177,7 +233,7 @@ async function registrar(tipo) {
     const nota = d.estado === 'FUERA DE RANGO' ? 'Tu ubicación aparece lejos del recinto. El registro quedó marcado para revisión.'
                : d.estado === 'SIN UBICACIÓN' ? 'Registrado sin ubicación.' : '';
     message(tipo === 'ENTRADA' ? '✅' : '👋', (tipo === 'ENTRADA' ? 'Entrada' : 'Salida') + ' registrada',
-            d.recinto + ' · ' + d.hora + ' hrs', nota, true);
+            d.recinto + ' · ' + d.hora + ' hrs' + (d.personas > 1 ? ' · ' + d.personas + ' personas' : ''), nota, true);
   } catch (e) {
     message('⚠️', 'No se pudo registrar', e.message === 'Failed to fetch' ? 'Revisa tu conexión a internet e inténtalo de nuevo.' : e.message, '', true);
   } finally {
@@ -206,6 +262,7 @@ $('btnAgain').onclick = () => { show('form'); pedirUbicacion(); };
     return;
   }
   $('rut').value = store.get('rut'); $('nombre').value = store.get('nombre'); $('empresa').value = store.get('empresa');
+  try { JSON.parse(store.get('cuadrilla') || '[]').forEach(m => addMember(m.rut, m.nombre)); } catch (e) {}
   // Resalta la acción probable (si la última fue entrada, sugiere salida)
   if (store.get('ultimo_' + S) === 'ENTRADA') $('btnOut').style.outline = '3px solid #fdba74';
   else $('btnIn').style.outline = '3px solid #86efac';
