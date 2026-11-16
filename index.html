@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>Registro de acceso</title>
+<style>
+  :root {
+    --bg: #f4f6f9; --card: #fff; --text: #1d2433; --muted: #667085; --line: #d8dde6;
+    --in: #0f8a4b; --out: #c2410c; --accent: #1d4ed8; --warn: #b45309; --err: #b42318;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+         background: var(--bg); color: var(--text); }
+  .wrap { max-width: 460px; margin: 0 auto; padding: 20px 16px 40px; }
+  header { margin-bottom: 16px; }
+  .eyebrow { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  h1 { font-size: 24px; margin: 4px 0 0; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
+  label { display: block; font-size: 14px; font-weight: 600; margin: 14px 0 6px; }
+  label:first-child { margin-top: 0; }
+  .opt { font-weight: 400; color: var(--muted); }
+  input { width: 100%; font-size: 17px; padding: 12px; border: 1px solid var(--line);
+          border-radius: 10px; background: #fff; color: var(--text); }
+  input:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
+  input.bad { border-color: var(--err); }
+  .hint { font-size: 13px; color: var(--err); margin-top: 4px; min-height: 0; }
+  .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 20px; }
+  button { font-size: 18px; font-weight: 700; padding: 16px 10px; border: 0; border-radius: 12px;
+           color: #fff; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  .b-in { background: var(--in); } .b-out { background: var(--out); }
+  .loc { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--muted); margin-top: 14px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--line); flex: none; }
+  .dot.ok { background: var(--in); } .dot.wait { background: var(--warn); } .dot.no { background: var(--err); }
+  .msg { text-align: center; padding: 28px 18px; }
+  .msg .big { font-size: 46px; line-height: 1; }
+  .msg h2 { margin: 12px 0 6px; font-size: 22px; }
+  .msg p { margin: 4px 0; color: var(--muted); }
+  .note { font-size: 13px; color: var(--warn); margin-top: 10px; }
+  .link { background: none; color: var(--accent); font-size: 15px; font-weight: 600; padding: 10px; margin-top: 14px; }
+  .priv { font-size: 12px; color: var(--muted); margin-top: 16px; line-height: 1.4; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Registro de acceso</div>
+    <h1 id="siteName">Cargando…</h1>
+  </header>
+
+  <!-- Formulario -->
+  <div id="formCard" class="card hidden">
+    <label for="rut">RUT</label>
+    <input id="rut" inputmode="text" autocomplete="off" placeholder="12.345.678-9" maxlength="12">
+    <div class="hint" id="rutHint"></div>
+
+    <label for="nombre">Nombre completo</label>
+    <input id="nombre" autocomplete="name" maxlength="80">
+
+    <label for="empresa">Empresa <span class="opt">(si eres contratista o visita)</span></label>
+    <input id="empresa" autocomplete="organization" maxlength="80">
+
+    <label for="motivo">Motivo <span class="opt">(opcional)</span></label>
+    <input id="motivo" maxlength="150">
+
+    <div class="loc"><span class="dot wait" id="locDot"></span><span id="locTxt">Obteniendo ubicación…</span></div>
+
+    <div class="btns">
+      <button class="b-in" id="btnIn" type="button">ENTRADA</button>
+      <button class="b-out" id="btnOut" type="button">SALIDA</button>
+    </div>
+    <div class="priv">Tus datos (RUT, nombre y ubicación al momento de marcar) se usan solo para el control de acceso a este establecimiento.</div>
+  </div>
+
+  <!-- Resultado / errores -->
+  <div id="msgCard" class="card msg hidden">
+    <div class="big" id="msgIcon"></div>
+    <h2 id="msgTitle"></h2>
+    <p id="msgText"></p>
+    <div class="note" id="msgNote"></div>
+    <button class="link hidden" id="btnAgain" type="button">Hacer otro registro</button>
+  </div>
+</div>
+
+<script>
+/* ===== CONFIGURACIÓN: pega aquí la URL de tu Apps Script (termina en /exec) ===== */
+const API_URL = 'https://script.google.com/macros/s/AKfycbzVrmKgqbeKBoFG7QYwt2fcvUvMlLIR7QN81KNwbk7pMhPAmmRavmgubkauXPE-afg_yw/exec';
+/* ================================================================================ */
+
+const $ = id => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+const S = params.get('s'), K = params.get('k');
+let pos = null;
+
+/* Recordar datos en este teléfono para no reescribirlos cada vez */
+const store = {
+  get(k) { try { return localStorage.getItem('ra_' + k) || ''; } catch (e) { return ''; } },
+  set(k, v) { try { localStorage.setItem('ra_' + k, v); } catch (e) {} }
+};
+
+function show(card) {
+  $('formCard').classList.toggle('hidden', card !== 'form');
+  $('msgCard').classList.toggle('hidden', card !== 'msg');
+}
+function message(icon, title, text, note, again) {
+  $('msgIcon').textContent = icon; $('msgTitle').textContent = title;
+  $('msgText').textContent = text || ''; $('msgNote').textContent = note || '';
+  $('btnAgain').classList.toggle('hidden', !again);
+  show('msg');
+}
+
+/* ----- RUT ----- */
+function rutValido(rut) {
+  const s = rut.replace(/[^0-9kK]/g, '').toUpperCase();
+  if (s.length < 7) return false;
+  const cuerpo = s.slice(0, -1), dv = s.slice(-1);
+  if (!/^\d{6,8}$/.test(cuerpo)) return false;
+  let suma = 0, m = 2;
+  for (let i = cuerpo.length - 1; i >= 0; i--) { suma += +cuerpo[i] * m; m = m === 7 ? 2 : m + 1; }
+  const r = 11 - (suma % 11);
+  return dv === (r === 11 ? '0' : r === 10 ? 'K' : String(r));
+}
+function formatearRut(v) {
+  const s = v.replace(/[^0-9kK]/g, '').toUpperCase().slice(0, 9);
+  if (s.length < 2) return s;
+  return s.slice(0, -1).replace(/\B(?=(\d{3})+(?!\d))/g, '.') + '-' + s.slice(-1);
+}
+$('rut').addEventListener('input', e => {
+  e.target.value = formatearRut(e.target.value);
+  e.target.classList.remove('bad'); $('rutHint').textContent = '';
+});
+
+/* ----- Ubicación ----- */
+function pedirUbicacion() {
+  if (!navigator.geolocation) { setLoc('no', 'Este teléfono no entrega ubicación'); return; }
+  setLoc('wait', 'Obteniendo ubicación…');
+  navigator.geolocation.getCurrentPosition(
+    p => { pos = p.coords; setLoc('ok', 'Ubicación obtenida (±' + Math.round(pos.accuracy) + ' m)'); },
+    err => setLoc('no', err.code === 1
+      ? 'Ubicación bloqueada. Actívala en el navegador para validar tu presencia.'
+      : 'No se pudo obtener la ubicación. Puedes registrar igual.'),
+    { enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 }
+  );
+}
+function setLoc(state, txt) { $('locDot').className = 'dot ' + state; $('locTxt').textContent = txt; }
+
+/* ----- Envío ----- */
+async function registrar(tipo) {
+  const rut = $('rut').value.trim(), nombre = $('nombre').value.trim();
+  if (!rutValido(rut)) { $('rut').classList.add('bad'); $('rutHint').textContent = 'RUT inválido'; $('rut').focus(); return; }
+  if (nombre.length < 3) { $('nombre').classList.add('bad'); $('nombre').focus(); return; }
+  $('nombre').classList.remove('bad');
+
+  store.set('rut', rut); store.set('nombre', nombre); store.set('empresa', $('empresa').value.trim());
+
+  $('btnIn').disabled = $('btnOut').disabled = true;
+  const label = tipo === 'ENTRADA' ? $('btnIn') : $('btnOut');
+  const orig = label.textContent; label.textContent = 'Enviando…';
+
+  const body = {
+    s: S, k: K, tipo, rut, nombre,
+    empresa: $('empresa').value.trim(), motivo: $('motivo').value.trim(),
+    lat: pos ? pos.latitude : null, lng: pos ? pos.longitude : null, acc: pos ? pos.accuracy : null,
+    ua: navigator.userAgent
+  };
+
+  try {
+    // text/plain evita el "preflight" CORS con Apps Script
+    const r = await fetch(API_URL, { method: 'POST', body: JSON.stringify(body) });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || 'Error al registrar');
+    store.set('ultimo_' + S, tipo);
+    $('motivo').value = '';
+    const nota = d.estado === 'FUERA DE RANGO' ? 'Tu ubicación aparece lejos del establecimiento. El registro quedó marcado para revisión.'
+               : d.estado === 'SIN UBICACIÓN' ? 'Registrado sin ubicación.' : '';
+    message(tipo === 'ENTRADA' ? '✅' : '👋', (tipo === 'ENTRADA' ? 'Entrada' : 'Salida') + ' registrada',
+            d.establecimiento + ' · ' + d.hora + ' hrs', nota, true);
+  } catch (e) {
+    message('⚠️', 'No se pudo registrar', e.message === 'Failed to fetch' ? 'Revisa tu conexión a internet e inténtalo de nuevo.' : e.message, '', true);
+  } finally {
+    $('btnIn').disabled = $('btnOut').disabled = false; label.textContent = orig;
+  }
+}
+$('btnIn').onclick = () => registrar('ENTRADA');
+$('btnOut').onclick = () => registrar('SALIDA');
+$('btnAgain').onclick = () => { show('form'); pedirUbicacion(); };
+
+/* ----- Inicio ----- */
+(async function init() {
+  if (!S || !K) {
+    $('siteName').textContent = 'Link incompleto';
+    message('📵', 'Escanea el NFC o QR', 'Esta página debe abrirse desde el tag NFC o el código QR del establecimiento.');
+    return;
+  }
+  try {
+    const r = await fetch(API_URL + '?action=site&s=' + encodeURIComponent(S) + '&k=' + encodeURIComponent(K));
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error);
+    $('siteName').textContent = d.nombre;
+  } catch (e) {
+    $('siteName').textContent = 'Error';
+    message('⚠️', 'Link no válido', e.message && e.message !== 'Failed to fetch' ? e.message : 'No se pudo conectar. Revisa tu internet.');
+    return;
+  }
+  $('rut').value = store.get('rut'); $('nombre').value = store.get('nombre'); $('empresa').value = store.get('empresa');
+  // Resalta la acción probable (si la última fue entrada, sugiere salida)
+  if (store.get('ultimo_' + S) === 'ENTRADA') $('btnOut').style.outline = '3px solid #fdba74';
+  else $('btnIn').style.outline = '3px solid #86efac';
+  show('form');
+  pedirUbicacion();
+})();
+</script>
+</body>
+</html>
