@@ -72,7 +72,7 @@
       <button class="b-in" id="btnIn" type="button">ENTRADA</button>
       <button class="b-out" id="btnOut" type="button">SALIDA</button>
     </div>
-    <div class="priv">Tus datos (RUT, nombre y ubicación al momento de marcar) se usan solo para el control de acceso a este establecimiento.</div>
+    <div class="priv">Tus datos (RUT, nombre y ubicación al momento de marcar) se usan solo para el control de acceso a este recinto.</div>
   </div>
 
   <!-- Resultado / errores -->
@@ -174,10 +174,10 @@ async function registrar(tipo) {
     if (!d.ok) throw new Error(d.error || 'Error al registrar');
     store.set('ultimo_' + S, tipo);
     $('motivo').value = '';
-    const nota = d.estado === 'FUERA DE RANGO' ? 'Tu ubicación aparece lejos del establecimiento. El registro quedó marcado para revisión.'
+    const nota = d.estado === 'FUERA DE RANGO' ? 'Tu ubicación aparece lejos del recinto. El registro quedó marcado para revisión.'
                : d.estado === 'SIN UBICACIÓN' ? 'Registrado sin ubicación.' : '';
     message(tipo === 'ENTRADA' ? '✅' : '👋', (tipo === 'ENTRADA' ? 'Entrada' : 'Salida') + ' registrada',
-            d.establecimiento + ' · ' + d.hora + ' hrs', nota, true);
+            d.recinto + ' · ' + d.hora + ' hrs', nota, true);
   } catch (e) {
     message('⚠️', 'No se pudo registrar', e.message === 'Failed to fetch' ? 'Revisa tu conexión a internet e inténtalo de nuevo.' : e.message, '', true);
   } finally {
@@ -192,7 +192,7 @@ $('btnAgain').onclick = () => { show('form'); pedirUbicacion(); };
 (async function init() {
   if (!S || !K) {
     $('siteName').textContent = 'Link incompleto';
-    message('📵', 'Escanea el NFC o QR', 'Esta página debe abrirse desde el tag NFC o el código QR del establecimiento.');
+    message('📵', 'Escanea el NFC o QR', 'Esta página debe abrirse desde el tag NFC o el código QR del recinto.');
     return;
   }
   try {
